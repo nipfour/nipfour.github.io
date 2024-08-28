@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8">
+  <title>n4</title>
+  
+<link rel="stylesheet" href="./style.css">
+
+</head>
+<body>
+    <div class="container">
+        <h1>n4</h1>
+        <input type="text" id="pubkey" placeholder="Enter your pubkey in hex format">
+        <input type="text" id="relays" placeholder="Enter relays separated by comma (e.g., wss://relay.damus.io, wss://nos.lol)">
+        <button id="getEventsButton">GET</button></br></br>
+        <div id="events"></div>
+    </div>
+
+    <script>
+        document.getElementById('getEventsButton').addEventListener('click', async function() {
+            const pubkey = document.getElementById('pubkey').value.trim();
+            const relays = document.getElementById('relays').value.split(',').map(relay => relay.trim());
+            const eventsDiv = document.getElementById('events');
+            eventsDiv.innerHTML = 'Fetching events...';
+
+            try {
+                const eventIds = [];
+
+                for (const relay of relays) {
+                    const ws = new WebSocket(relay);
+                    ws.onopen = () => {
+                        console.log(`Connected to relay: ${relay}`);
+                        ws.send(JSON.stringify(["REQ", "subid", {
+                            "kinds": [4],
+                            "authors": [pubkey]
+                        }]));
+                    };
+
+                    ws.onmessage = (message) => {
+                        const data = JSON.parse(message.data);
+                        console.log(`Message received from ${relay}:`, data);
+                        if (data[0] === "EVENT" && Array.isArray(data) && data[2] && data[2].id) {
+                            const eventId = data[2].id;
+                            console.log(`Event ID: ${eventId}`);
+                            eventIds.push(eventId);
+                        } else if (data[0] === "EOSE") {
+                            console.log(`End of stream from ${relay}`);
+                            ws.close();
+                        }
+                    };
+
+                    ws.onerror = (error) => {
+                        console.error(`WebSocket error from ${relay}:`, error);
+                    };
+
+                    ws.onclose = () => {
+                        console.log(`WebSocket closed from ${relay}`);
+                    };
+
+                    await new Promise(resolve => {
+                        ws.onclose = resolve;
+                    });
+                }
+
+                if (eventIds.length === 0) {
+                    eventsDiv.innerHTML = 'No NIP 4 events found for this user.';
+                } else {
+                    const blob = new Blob([eventIds.join('\n')], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'nip4_event_ids.txt';
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    eventsDiv.innerHTML = `Found ${eventIds.length} NIP 4 event(s).`;
+                }
+            } catch (error) {
+                eventsDiv.innerHTML = `Error: ${error.message}`;
+                console.error('Error fetching events:', error);
+            }
+        });
+    </script>
+</body>
+</html>
